@@ -1,0 +1,91 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用工具预算",
+    "default": true
+  },
+  "main_tool_budget": {
+    "type": "int",
+    "description": "主 Agent 每回合普通工具预算",
+    "hint": "仅非 Handoff 工具计数；子 Agent 始终豁免。",
+    "default": 2
+  },
+  "auto_detect_handoff": {
+    "type": "bool",
+    "description": "自动识别原生 SubAgent Handoff",
+    "hint": "优先识别 AstrBot HandoffTool 类型；兼容路径才使用下方前缀。",
+    "default": true
+  },
+  "handoff_prefix": {
+    "type": "string",
+    "description": "Handoff 工具匹配前缀",
+    "default": "transfer_to_"
+  },
+  "budget_exempt_rules": {
+    "type": "template_list",
+    "description": "不计预算工具规则",
+    "templates": {
+      "rule": {
+        "name": "匹配规则",
+        "display_item": "pattern",
+        "items": {
+          "mode": {
+            "type": "string",
+            "description": "匹配模式",
+            "default": "exact",
+            "options": ["exact", "prefix", "contains", "regex"]
+          },
+          "pattern": {
+            "type": "string",
+            "description": "工具名称匹配内容",
+            "default": ""
+          }
+        }
+      }
+    },
+    "default": []
+  },
+  "immediate_delegate_rules": {
+    "type": "template_list",
+    "description": "立即要求委派的工具规则",
+    "templates": {
+      "rule": {
+        "name": "匹配规则",
+        "display_item": "pattern",
+        "items": {
+          "mode": {
+            "type": "string",
+            "description": "匹配模式",
+            "default": "exact",
+            "options": ["exact", "prefix", "contains", "regex"]
+          },
+          "pattern": {
+            "type": "string",
+            "description": "工具名称匹配内容",
+            "default": ""
+          }
+        }
+      }
+    },
+    "default": []
+  },
+  "no_handoff_behavior": {
+    "type": "string",
+    "description": "无可用子代理时",
+    "hint": "放行是默认值，避免没有配置 SubAgent 时锁死主 Agent。",
+    "default": "allow",
+    "options": ["allow", "reject"],
+    "labels": ["放行", "拒绝"]
+  },
+  "delegate_required_message": {
+    "type": "text",
+    "description": "DELEGATE_REQUIRED 内部提示文本",
+    "default": "DELEGATE_REQUIRED\n\nThe main agent's direct tool budget for this user turn has been exhausted.\nDo not continue calling low-level tools directly.\nDelegate the remaining task to the most appropriate available subagent using a handoff tool.\nInclude the original goal, useful findings already obtained, and remaining work."
+  },
+  "debug_log": {
+    "type": "bool",
+    "description": "调试日志",
+    "hint": "仅记录运行标识、Agent 类型、工具名、预算、动作和原因；不记录参数或结果。",
+    "default": false
+  }
+}
