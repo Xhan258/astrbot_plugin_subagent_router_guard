@@ -104,7 +104,7 @@ python -m unittest tests/test_guard.py -v
 
 本插件只做主 Agent 工具预算与原生 Handoff 强制转向；不做权限验证、工具安全鉴权、Prompt Injection 防护、子代理规划、记忆系统或自定义多代理框架。
 
-依赖 AstrBot 内置 Agent Runner 的当前执行链路，声明支持 `>=4.23.1,<5`。升级 AstrBot 后，应先按上方清单验证一次真实 Handoff 与插件重载路径。
+依赖 AstrBot 内置 Agent Runner 的当前执行链路，声明支持 `>=4.23.1,<5`。`v0.1.1` 已按 AstrBot v4.27.5 的插件 API 导入路径校正；升级 AstrBot 后，仍应先按上方清单验证一次真实 Handoff 与插件重载路径。
 
 ## 开发与发布
 

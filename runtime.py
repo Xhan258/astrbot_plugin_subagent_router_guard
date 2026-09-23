@@ -11,7 +11,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
-from astrbot.core import logger
+from astrbot import logger
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner
 from astrbot.core.astr_agent_tool_exec import FunctionToolExecutor
@@ -59,7 +59,9 @@ class GuardRuntime:
             executor_cls: type[FunctionToolExecutor], tool: Any, run_context: Any, **tool_args: Any
         ) -> AsyncGenerator[Any, None]:
             runtime = GuardRuntime._active
-            original_descriptor = GuardRuntime._original_execute
+            # Read directly from the class dictionary: a stored classmethod is a
+            # descriptor, and normal attribute access would bind it again.
+            original_descriptor = GuardRuntime.__dict__.get("_original_execute")
             if runtime is None or original_descriptor is None:
                 original = original_descriptor.__get__(None, executor_cls)
                 async for item in original(tool, run_context, **tool_args):
@@ -102,7 +104,7 @@ class GuardRuntime:
             runner: ToolLoopAgentRunner, req: Any, llm_response: Any
         ) -> AsyncGenerator[Any, None]:
             runtime = GuardRuntime._active
-            original = GuardRuntime._original_handle
+            original = GuardRuntime.__dict__.get("_original_handle")
             if runtime is None or original is None:
                 async for item in original(runner, req, llm_response):
                     yield item
@@ -126,8 +128,12 @@ class GuardRuntime:
     def uninstall(self) -> None:
         if not self._installed or type(self)._active is not self:
             return
-        FunctionToolExecutor.execute = type(self)._original_execute
-        ToolLoopAgentRunner._handle_function_tools = type(self)._original_handle
+        original_execute = type(self).__dict__.get("_original_execute")
+        original_handle = type(self).__dict__.get("_original_handle")
+        if original_execute is not None:
+            FunctionToolExecutor.execute = original_execute
+        if original_handle is not None:
+            ToolLoopAgentRunner._handle_function_tools = original_handle
         type(self)._active = None
         type(self)._original_execute = None
         type(self)._original_handle = None
