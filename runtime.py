@@ -87,13 +87,21 @@ class GuardRuntime:
                 return
 
             if is_handoff:
-                token = _SUBAGENT_DEPTH.set(_SUBAGENT_DEPTH.get() + 1)
-                try:
-                    original = original_descriptor.__get__(None, executor_cls)
-                    async for item in original(tool, run_context, **tool_args):
-                        yield item
-                finally:
-                    _SUBAGENT_DEPTH.reset(token)
+                original = original_descriptor.__get__(None, executor_cls)
+                iterator = original(tool, run_context, **tool_args)
+                while True:
+                    # AstrBot may consume each anext(iterator) in a different
+                    # asyncio Task.  A ContextVar token must be reset in the
+                    # exact Context where it was created, so never let it span
+                    # this wrapper's yield boundary.
+                    token = _SUBAGENT_DEPTH.set(_SUBAGENT_DEPTH.get() + 1)
+                    try:
+                        item = await anext(iterator)
+                    except StopAsyncIteration:
+                        return
+                    finally:
+                        _SUBAGENT_DEPTH.reset(token)
+                    yield item
                 return
 
             original = original_descriptor.__get__(None, executor_cls)

@@ -43,7 +43,10 @@ class AstrBotImportSmokeTests(unittest.TestCase):
         self._module("astrbot.core", package=True)
         self._module("astrbot.core.agent", package=True)
         handoff = self._module("astrbot.core.agent.handoff")
-        handoff.HandoffTool = type("HandoffTool", (), {})
+        class HandoffTool:
+            name = "transfer_to_worker"
+
+        handoff.HandoffTool = HandoffTool
         self._module("astrbot.core.agent.runners", package=True)
         runner_module = self._module("astrbot.core.agent.runners.tool_loop_agent_runner")
 
@@ -58,8 +61,8 @@ class AstrBotImportSmokeTests(unittest.TestCase):
         class FunctionToolExecutor:
             @classmethod
             async def execute(cls, tool: object, run_context: object, **kwargs: object):
-                if False:
-                    yield None
+                yield "first"
+                yield "second"
 
         executor_module.FunctionToolExecutor = FunctionToolExecutor
         mcp = self._module("mcp", package=True)
@@ -98,6 +101,17 @@ class AstrBotImportSmokeTests(unittest.TestCase):
         original_handle = ToolLoopAgentRunner.__dict__["_handle_function_tools"]
         plugin = module.SubAgentRouterGuard(object(), {})
         self.assertIsNot(FunctionToolExecutor.__dict__["execute"], original_execute)
+
+        async def consume_one_item_per_task() -> list[str]:
+            iterator = FunctionToolExecutor.execute(HandoffTool(), object())
+            results = []
+            for _ in range(2):
+                results.append(await asyncio.create_task(anext(iterator)))
+            with self.assertRaises(StopAsyncIteration):
+                await asyncio.create_task(anext(iterator))
+            return results
+
+        self.assertEqual(asyncio.run(consume_one_item_per_task()), ["first", "second"])
         asyncio.run(plugin.terminate())
         self.assertIs(FunctionToolExecutor.__dict__["execute"], original_execute)
         self.assertIs(ToolLoopAgentRunner.__dict__["_handle_function_tools"], original_handle)

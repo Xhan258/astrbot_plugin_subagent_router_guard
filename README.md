@@ -1,116 +1,91 @@
-# astrbot_plugin_subagent_router_guard
+# 子代理任务分流器
 
-一个通用的 AstrBot 基础设施插件：为**主 Agent**增加轻量、确定性的 Tool Budget（工具预算），并在预算耗尽或命中规则时，强制它转向 AstrBot 原生 SubAgent Handoff（子代理委派）。
+给 AstrBot 的主 Agent 装一个简单的“分流提醒器”。
 
-它不替模型做任务规划，不决定委派给哪个子代理，也不关心你的 Persona、业务工具或用户场景。
+当主 Agent 连续查文件、搜资料、跑命令时，工具结果会不断塞进它的短上下文。任务做着做着，它可能就忘了用户一开始要什么、刚刚查到什么，最后越做越乱。
 
-## 要解决什么
+这个插件的作用很直接：**主 Agent 先做少量必要操作；任务开始变繁琐后，就让它把后续工作交给 AstrBot 原生的子 Agent。**
 
-在复杂任务中，主 Agent 很容易连续直接调用低层工具：
+主 Agent 负责记住用户要什么、决定该找哪个子 Agent；子 Agent 专心搜索、排查、写代码或处理具体工作。这样主对话不会被一大串工具输出撑满。
 
-```text
-LLM → tool → LLM → tool → LLM → tool → ...
-```
+## 它会怎么做
 
-这会让主 Agent 同时承担对话、规划和大量具体执行，既拉长上下文，也使本该由专职 SubAgent 完成的多步骤工作继续堆在主链路上。
-
-AstrBot 已经提供原生 SubAgent Handoff；但仅靠提示词“请主动委派”不是确定性约束。模型仍可能继续直接调用工具。
-
-## 为什么要解决
-
-- 主 Agent 应保留少量直接操作能力，而不是无限承担执行工作流。
-- 已经配置了 SubAgent 的实例，应能在任务开始变复杂时稳定回到原生编排机制。
-- 不能为此引入第二个 LLM、复杂度分类器或自定义路由框架，否则会增加 token 成本和新的不确定性。
-- 未配置 SubAgent 的普通 AstrBot 实例不能被插件锁死。
-
-## 怎么解决
-
-每个用户消息触发的主 Agent Run 都有独立普通工具预算，默认是 2：
+默认情况下，主 Agent 每条用户消息可以直接调用 2 次普通工具：
 
 ```text
-第 1 次普通工具 → 允许
-第 2 次普通工具 → 允许
-第 3 次普通工具 → 不执行原工具，返回 DELEGATE_REQUIRED
-任意 Handoff 工具 → 始终允许，不计入预算
+第一次调用普通工具：正常执行
+第二次调用普通工具：正常执行
+第三次再调用普通工具：不执行，提示主 Agent 去委派子 Agent
 ```
 
-`DELEGATE_REQUIRED` 是返回给 LLM 的正常 Tool Result，不会直接发送给用户。它要求主 Agent 从**当前实际可用**的 Handoff 工具中自行选择合适的子代理，并携带原始目标、已获得的信息与剩余工作。
+`transfer_to_xxx` 这类 AstrBot 原生委派工具不受限制，也不占次数。插件不替主 Agent 选目标；有搜索、运维、代码等多个子 Agent 时，仍由主 Agent 自己选择合适的一个。
 
-插件不会指定 `transfer_to_xxx`，不会写死任何 Agent 名称，也不会替 LLM 决定委派对象。
+如果你没有配置任何子 Agent，插件默认不拦截工具，避免把机器人直接卡死。
 
-## 关键设计
+## 适合什么场景
 
-### 真正阻止执行
-
-`on_using_llm_tool` 只用于观察，不能被当成可靠 veto。插件包装 AstrBot 的 `FunctionToolExecutor.execute()`：拒绝分支只生成合法的 `CallToolResult`，因此不会进入原始 handler、MCP 调用或本地 `run/call`。
-
-### 识别 Handoff 与子代理
-
-优先使用 AstrBot 官方 `HandoffTool` 类型识别。为兼容经过 schema 转换的工具集，保留可配置的前缀兜底（默认 `transfer_to_`）。
-
-当前 AstrBot 的公开 `AstrAgentContext` 没有 `main/subagent` 标记。插件以官方 `HandoffTool` 的实际执行动态作用域标记其下游 Agent Run 为子代理；不依赖 Persona、Prompt、固定 Agent 名称或 Provider。子代理默认完全豁免预算。
-
-### 正确的回合和并发边界
-
-预算状态以 AstrBot `ContextWrapper` 实例为键，即一次实际 Agent Run；不使用“30 秒后重置”之类的时间猜测。每个 Run 的预算预约由异步锁保护，因此同一个模型响应内出现多个工具调用时，剩余 1 次也只会放行 1 个。
-
-### 无子代理时不锁死
-
-当当前实际工具集合中没有任何 Handoff，默认行为是放行普通工具。WebUI 可切换为拒绝。
-
-## WebUI 配置
-
-| 配置 | 默认值 | 说明 |
-| --- | --- | --- |
-| 启用工具预算 | 开 | 总开关 |
-| 主 Agent 每回合普通工具预算 | `2` | 非 Handoff 工具允许次数 |
-| 自动识别原生 SubAgent Handoff | 开 | 优先官方类型识别 |
-| Handoff 工具匹配前缀 | `transfer_to_` | 兼容性兜底规则 |
-| 不计预算工具规则 | 空 | 轻量工具可不消耗预算 |
-| 立即要求委派工具规则 | 空 | 首次调用即拦截 |
-| 无可用子代理时 | 放行 | 避免未配置 SubAgent 时失能 |
-| DELEGATE_REQUIRED 内部提示文本 | 内置文本 | 返回给 LLM 的提示 |
-| 调试日志 | 关 | 不记录参数或完整工具结果 |
-
-规则可逐条选择 `exact`、`prefix`、`contains` 或 `regex`。
+- 主 Agent 工具很多，常常连续读文件、查日志、搜索资料或跑命令。
+- 你已经在 AstrBot 里配置了多个子 Agent，希望主 Agent 真正把复杂工作交出去。
+- 你发现主 Agent 经常在长任务中忘记目标，或者被前面工具的长输出带偏。
 
 ## 安装
 
-1. 从 [Releases](../../releases) 下载 ZIP，或克隆本仓库。
-2. 将插件目录放入 `AstrBot/data/plugins/`。
-3. 在 AstrBot WebUI 的“插件”页面重载插件。
-4. 在“SubAgent”页面启用并配置至少一个原生子代理。
-5. 保持默认预算 `2`，再按实际工具粒度调整规则。
+1. 从 [Releases](../../releases) 下载 ZIP。
+2. 在 AstrBot WebUI 的“插件”页面上传并安装。
+3. 在 AstrBot 的“SubAgent”页面创建并启用至少一个子 Agent。
+4. 回到本插件配置，先保持默认值即可。
 
-## 验证清单
+## 建议配置
 
-- 主 Agent 前两次普通工具调用正常执行；第三次收到 `DELEGATE_REQUIRED`，且原工具没有执行。
-- 预算耗尽后，任意原生 Handoff 仍可调用。
-- 多个 Handoff 存在时，插件不指定目标。
-- 子 Agent 连续调用工具不受预算限制。
-- 新用户消息的新 Agent Run 从 0 开始计数；不同会话互不影响。
-- 并行工具调用不会穿透剩余预算。
-- “立即要求委派”规则首次命中即拦截；“不计预算”规则不消耗预算。
-- 没有 Handoff 时默认仍可调用普通工具。
-- 重载/卸载插件后，原执行器包装被恢复。
+| 配置项 | 建议 | 作用 |
+| --- | --- | --- |
+| 启用工具预算 | 开启 | 启用分流机制 |
+| 主 Agent 每回合普通工具预算 | `2` | 主 Agent 最多先自己做两步 |
+| 自动识别 SubAgent 委派工具 | 开启 | 自动识别 AstrBot 原生委派工具 |
+| 无可用子代理时 | 放行 | 没配置子 Agent 时不影响正常使用 |
+| 调试日志 | 平时关闭 | 出问题时再打开看判断过程 |
 
-独立策略测试：
+### 哪些工具不该占次数
+
+如果某个工具很轻，只是看一下状态、读一个很短的值，可以加到“**不计预算工具规则**”。例如用 `exact` 填完整工具名，或用 `prefix` 匹配一类工具。
+
+### 哪些工具应该立刻交给子 Agent
+
+如果某个工具一次就会返回大量内容，例如全目录扫描、大日志读取、批量查询，可以加到“**立即要求委派工具规则**”。主 Agent 第一次尝试调用它时就会被提示委派，不会实际执行这个工具。
+
+规则支持四种匹配方式：
+
+- `exact`：工具名完全相同
+- `prefix`：工具名以某段文字开头
+- `contains`：工具名包含某段文字
+- `regex`：正则表达式匹配
+
+插件不会内置任何业务工具名；哪些工具轻、哪些工具重，由你自己按实际环境配置。
+
+## 一个简单例子
+
+用户说：“帮我找出项目启动失败的原因，并修好它。”
+
+主 Agent 可以先看一眼错误日志、确认项目位置。再想继续搜文件、跑命令、改代码时，插件会提醒它：现在应把已经知道的情况和剩余工作交给合适的子 Agent。子 Agent 完成排查和修改后，把结果交回主 Agent；主 Agent 再用正常对话告诉用户结论。
+
+## 它不会做什么
+
+- 不会替你创建、配置或挑选子 Agent。
+- 不会根据人格、Prompt、Agent 名称或 Provider 猜测谁是子 Agent。
+- 不会调用额外的 LLM 来判断任务是否复杂。
+- 不负责权限、工具安全、Prompt Injection 防护或记忆系统。
+
+它只做一件事：**主 Agent 的工作变长时，强制把后续执行工作交回 AstrBot 原生子代理体系。**
+
+## 技术说明
+
+插件在 AstrBot 的工具执行入口返回正常的 Tool Result，因此被拦截的普通工具不会真的运行。预算按一次 Agent Run 分开计算，不按时间猜测；同一次模型回复里同时调用多个工具，也不会突破剩余次数。
+
+子 Agent 由 AstrBot 原生 Handoff 启动后不受预算限制。插件支持 AstrBot `>=4.23.1,<5`，并已针对 v4.27.5 的导入路径与跨 asyncio Task 的 Handoff 执行方式做了兼容处理。
+
+## 开发验证
 
 ```powershell
-python -m unittest tests/test_guard.py -v
-```
-
-## 边界与兼容性
-
-本插件只做主 Agent 工具预算与原生 Handoff 强制转向；不做权限验证、工具安全鉴权、Prompt Injection 防护、子代理规划、记忆系统或自定义多代理框架。
-
-依赖 AstrBot 内置 Agent Runner 的当前执行链路，声明支持 `>=4.23.1,<5`。`v0.1.1` 已按 AstrBot v4.27.5 的插件 API 导入路径校正；升级 AstrBot 后，仍应先按上方清单验证一次真实 Handoff 与插件重载路径。
-
-## 开发与发布
-
-```powershell
-python -m unittest tests/test_guard.py -v
+python -m unittest discover -s tests -v
 python -m py_compile __init__.py main.py guard.py runtime.py
 ```
-
-发布 ZIP 必须以 `astrbot_plugin_subagent_router_guard/metadata.yaml` 为根路径，且归档路径使用 `/`。项目的 GitHub Releases 附带已校验的安装包。

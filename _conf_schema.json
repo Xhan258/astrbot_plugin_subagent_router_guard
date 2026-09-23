@@ -80,7 +80,7 @@
   "delegate_required_message": {
     "type": "text",
     "description": "DELEGATE_REQUIRED 内部提示文本",
-    "default": "DELEGATE_REQUIRED\n\nThe main agent's direct tool budget for this user turn has been exhausted.\nDo not continue calling low-level tools directly.\nDelegate the remaining task to the most appropriate available subagent using a handoff tool.\nInclude the original goal, useful findings already obtained, and remaining work."
+    "default": "DELEGATE_REQUIRED\n\n主 Agent 本轮可直接调用的工具次数已用完。\n请不要继续直接调用底层工具。\n请从当前可用的子代理委派工具中选择最合适的一个，交给它继续完成剩余工作。\n委派时请说明原始目标、已经获得的有用信息和剩余工作。"
   },
   "debug_log": {
     "type": "bool",

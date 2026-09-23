@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Fix the Handoff ContextVar reset failure when AstrBot consumes executor output
+  in different asyncio Tasks.
+- Rename the plugin for Chinese users: **子代理任务分流器**.
+- Rewrite the README and default internal delegation prompt in plain Chinese.
+
 ## 0.1.1
 
 - Fix AstrBot v4.27.5 plugin import: import `Context` and `Star` from
