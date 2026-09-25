@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Import the plugin logger only from `astrbot.api`, as required by AstrBot
+  marketplace review rules.
+
 ## 0.1.2
 
 - Fix the Handoff ContextVar reset failure when AstrBot consumes executor output

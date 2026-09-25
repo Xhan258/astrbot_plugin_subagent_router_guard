@@ -27,10 +27,10 @@ class AstrBotImportSmokeTests(unittest.TestCase):
     def test_plugin_imports_with_v4275_public_api_shape(self) -> None:
         # The user's v4.27.5 error proves that Context is not exported by
         # astrbot.api. Deliberately expose only the documented split imports.
-        astrbot = self._module("astrbot", package=True)
-        astrbot.logger = types.SimpleNamespace(info=lambda *args, **kwargs: None)
+        self._module("astrbot", package=True)
         api = self._module("astrbot.api", package=True)
         api.AstrBotConfig = dict
+        api.logger = types.SimpleNamespace(info=lambda *args, **kwargs: None)
         api_star = self._module("astrbot.api.star")
 
         class Star:

@@ -11,7 +11,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner
 from astrbot.core.astr_agent_tool_exec import FunctionToolExecutor
