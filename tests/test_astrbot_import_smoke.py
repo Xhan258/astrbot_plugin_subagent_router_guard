@@ -43,12 +43,24 @@ class AstrBotImportSmokeTests(unittest.TestCase):
         self._module("astrbot.core", package=True)
         self._module("astrbot.core.agent", package=True)
         handoff = self._module("astrbot.core.agent.handoff")
+
         class HandoffTool:
             name = "transfer_to_worker"
 
+            def __init__(self, block: bool = False) -> None:
+                self.block = block
+                self.closed = False
+                self.received_args: dict[str, object] = {}
+                self.release = asyncio.Event()
+
+        class ChildTool:
+            name = "child_tool"
+
         handoff.HandoffTool = HandoffTool
         self._module("astrbot.core.agent.runners", package=True)
-        runner_module = self._module("astrbot.core.agent.runners.tool_loop_agent_runner")
+        runner_module = self._module(
+            "astrbot.core.agent.runners.tool_loop_agent_runner"
+        )
 
         class ToolLoopAgentRunner:
             async def _handle_function_tools(self, req: object, response: object):
@@ -61,6 +73,18 @@ class AstrBotImportSmokeTests(unittest.TestCase):
         class FunctionToolExecutor:
             @classmethod
             async def execute(cls, tool: object, run_context: object, **kwargs: object):
+                if isinstance(tool, HandoffTool) and tool.block:
+                    tool.received_args = dict(kwargs)
+                    try:
+                        async for item in cls.execute(ChildTool(), run_context):
+                            yield item
+                        await tool.release.wait()
+                    finally:
+                        tool.closed = True
+                    return
+                if isinstance(tool, ChildTool):
+                    yield "child result"
+                    return
                 yield "first"
                 yield "second"
 
@@ -112,6 +136,43 @@ class AstrBotImportSmokeTests(unittest.TestCase):
             return results
 
         self.assertEqual(asyncio.run(consume_one_item_per_task()), ["first", "second"])
+
+        class Event:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+
+            def plain_result(self, text: str) -> str:
+                return text
+
+            async def send(self, result: str) -> None:
+                self.sent.append(result)
+
+        class RunContext:
+            def __init__(self, event: Event) -> None:
+                self.context = types.SimpleNamespace(event=event)
+
+        async def cancel_handoff_and_collect_report() -> tuple[HandoffTool, Event]:
+            event = Event()
+            tool = HandoffTool(block=True)
+            iterator = FunctionToolExecutor.execute(
+                tool, RunContext(event), background_task=True
+            )
+            self.assertEqual(await anext(iterator), "child result")
+            pending_result = asyncio.create_task(anext(iterator))
+            await asyncio.sleep(0)
+            pending_result.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await pending_result
+            return tool, event
+
+        stopped_tool, stopped_event = asyncio.run(cancel_handoff_and_collect_report())
+        self.assertTrue(stopped_tool.closed)
+        self.assertEqual(stopped_tool.received_args["background_task"], False)
+        self.assertEqual(len(stopped_event.sent), 1)
+        self.assertIn("子代理任务已停止", stopped_event.sent[0])
+        self.assertIn("child_tool", stopped_event.sent[0])
         asyncio.run(plugin.terminate())
         self.assertIs(FunctionToolExecutor.__dict__["execute"], original_execute)
-        self.assertIs(ToolLoopAgentRunner.__dict__["_handle_function_tools"], original_handle)
+        self.assertIs(
+            ToolLoopAgentRunner.__dict__["_handle_function_tools"], original_handle
+        )
